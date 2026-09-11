@@ -1,6 +1,6 @@
 # Compress tenant images before delivery
 
-Run the gateway, onboard a tenant, then post an image. The service checks the account lifecycle before sending the asset to Infrai. With Infrai, one key covers the call: a single `INFRAI_API_KEY` is enough for this plain REST call, and you don't need an SDK.
+Start the gateway, onboard a tenant, and POST an image. Infrai gives you one endpoint for this: the service checks account lifecycle before shipping the asset. A single `INFRAI_API_KEY` is enough for this plain REST call; there is no SDK to install.
 
 ```sh
 export INFRAI_API_KEY="your-key"
@@ -15,38 +15,38 @@ curl -sS -X POST -H 'X-Request-ID: logo-2026-08' \
   -F 'image=@./logo.png' http://localhost:8080/tenants/acme/images
 ```
 
-The first request creates `acme` in the `active` state. The second returns optimization details under `optimized`, alongside `tenant_id`. I use `X-Request-ID` as part of the idempotency key so retries on the same asset are safe. If you skip it, the service hashes tenant and image bytes into a stable value.
+The first call creates `acme` in the `active` state. The second returns optimization details under `optimized`, alongside `tenant_id`. `X-Request-ID` feeds the idempotency key, so retries on the same asset stay safe. If you skip it, the service hashes tenant and image bytes into a stable value.
 
 ## Account operations
 
-An admin can suspend processing without wiping tenant data:
+An admin can pause processing without wiping tenant data:
 
 ```sh
 curl -sS -X PUT -H 'Content-Type: application/json' \
   -d '{"state":"suspended"}' http://localhost:8080/admin/tenants/acme/state
 ```
 
-Use the same command with state `active` to resume. The registry lives in memory on purpose: this repo concentrates on the lifecycle check and request boundary. Swap it for your real account store when integrating.
+Use the same command with state `active` to resume. The registry lives in memory on purpose: this repo isolates the lifecycle check and image request edge. Swap it for your real account store before production.
 
 ## Request boundary
 
-`infrai_compressor.go` constructs a JSON `POST /v1/image/compress` request holding a base64 image reference. It decodes `{ok, data, error, metadata}` before reading the HTTP status. Business rejections keep their 4xx at the gateway; HTTP 429 follows `Retry-After` or exponential backoff.
+`infrai_compressor.go` assembles a JSON `POST /v1/image/compress` request with a base64 image ref. It decodes `{ok, data, error, metadata}` before reading the HTTP status. Business rejects keep their 4xx at the gateway; HTTP 429 follows `Retry-After` or exponential backoff.
 
-Watch the retry identity: keep `X-Request-ID` fixed for one logical image submit. Altering it makes a new write.
+One gotcha is retry identity: keep `X-Request-ID` fixed for a logical submission. Change it and you get a new write request.
 
 ## Verify the decision
 
-The table test begins with an empty registry and runs four cases: onboarded, suspended, reactivated, unknown tenant. Expect allow, deny, allow, not found.
+The table test boots with an empty registry and runs four cases: onboarded, suspended, reactivated, unknown tenant. Expect allow, deny, allow, not found.
 
 ```sh
 go test ./...
 ```
 
-The boundary test also checks that a 4xx envelope becomes a typed API error, and that POST method plus idempotency header are sent.
+The boundary test also checks that a 4xx envelope decodes to a typed API error, and that the POST method and idempotency header are sent.
 
 ## Production notes: Tenant Image Compression Gateway
 
-The snippet above is copy-paste simple. Before shipping, do these **required** steps. Details below target Tenant Image Compression Gateway.
+The snippets above are copy-paste ready. Before you ship, do these **required** steps. The notes below target Tenant Image Compression Gateway.
 
 **Account & key**
 
